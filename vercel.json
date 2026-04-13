@@ -1,0 +1,75 @@
+// ─── CLIENTS ─────────────────────────────────────────────────────────────────
+import React, { useState } from 'react';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { getClients, createClient } from '../api';
+import toast from 'react-hot-toast';
+import { Plus } from 'lucide-react';
+
+const fmt = n => Number(n||0).toLocaleString('fr-CI');
+
+function ModalClient({ onClose }) {
+  const qc = useQueryClient();
+  const [form, setForm] = useState({ nom:'', telephone:'', email:'', adresse:'', limite_credit:0 });
+  const set = (k,v) => setForm(f=>({...f,[k]:v}));
+  const mut = useMutation({ mutationFn: createClient, onSuccess:()=>{toast.success('Client ajouté');qc.invalidateQueries();onClose();}, onError:e=>toast.error(String(e)) });
+  return (
+    <div className="modal-overlay" onClick={e=>e.target===e.currentTarget&&onClose()}>
+      <div className="modal">
+        <div className="modal-header"><h3>Nouveau client</h3><button className="btn btn-secondary btn-sm" onClick={onClose}>✕</button></div>
+        <div className="modal-body">
+          <div className="form-grid form-grid-2">
+            <div className="field" style={{gridColumn:'1/-1'}}><label>Raison sociale *</label><input value={form.nom} onChange={e=>set('nom',e.target.value)} placeholder="ex: SOPROMER CI"/></div>
+            <div className="field"><label>Téléphone</label><input value={form.telephone} onChange={e=>set('telephone',e.target.value)} placeholder="+225 07..."/></div>
+            <div className="field"><label>Email</label><input type="email" value={form.email} onChange={e=>set('email',e.target.value)}/></div>
+            <div className="field"><label>Adresse</label><input value={form.adresse} onChange={e=>set('adresse',e.target.value)}/></div>
+            <div className="field"><label>Limite crédit (FCFA)</label><input type="number" value={form.limite_credit} onChange={e=>set('limite_credit',e.target.value)}/></div>
+          </div>
+        </div>
+        <div className="modal-footer">
+          <button className="btn btn-secondary" onClick={onClose}>Annuler</button>
+          <button className="btn btn-primary" onClick={()=>mut.mutate(form)} disabled={!form.nom||mut.isPending}>Enregistrer</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+export function Clients() {
+  const [showModal, setShowModal] = useState(false);
+  const { data: clients=[] } = useQuery({ queryKey:['clients'], queryFn: getClients });
+  return (
+    <>
+      <div className="topbar"><span className="topbar-title">Clients</span>
+        <button className="btn btn-primary btn-sm" onClick={()=>setShowModal(true)}><Plus size={14}/> Nouveau client</button>
+      </div>
+      <div className="page-content">
+        <div className="card">
+          <div className="table-wrap">
+            <table>
+              <thead><tr><th>Raison sociale</th><th>Téléphone</th><th>Email</th><th>Crédit max</th><th>Solde dû</th><th>Statut</th></tr></thead>
+              <tbody>
+                {clients.map(c => (
+                  <tr key={c.id}>
+                    <td style={{fontWeight:500}}>{c.nom}</td>
+                    <td>{c.telephone}</td>
+                    <td style={{color:'var(--blue)',fontSize:12}}>{c.email}</td>
+                    <td style={{fontFamily:'var(--mono)'}}>{fmt(c.limite_credit)}</td>
+                    <td>
+                      <span style={{fontFamily:'var(--mono)',color:c.solde_du>0?'var(--amber)':'var(--text3)'}}>{fmt(c.solde_du)}</span>
+                      {c.limite_credit > 0 && <div className="progress" style={{marginTop:4}}><div className="progress-bar" style={{width:`${Math.min(c.solde_du/c.limite_credit*100,100)}%`,background:'var(--amber)'}}/></div>}
+                    </td>
+                    <td><span className={`badge ${c.statut==='Actif'?'badge-green':'badge-gray'}`}>{c.statut}</span></td>
+                  </tr>
+                ))}
+                {!clients.length && <tr><td colSpan={6} className="empty">Aucun client</td></tr>}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+      {showModal && <ModalClient onClose={()=>setShowModal(false)}/>}
+    </>
+  );
+}
+
+export default Clients;

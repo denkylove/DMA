@@ -1,0 +1,164 @@
+// src/lib/supabase.js
+// Remplacez ces valeurs par celles de votre projet Supabase
+// Dashboard → Settings → API
+import { createClient } from '@supabase/supabase-js'
+
+const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL || 'https://VOTRE_PROJECT.supabase.co'
+const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY || 'VOTRE_ANON_KEY'
+
+export const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY)
+
+/*
+══════════════════════════════════════════════════════════
+  SCHEMA SQL — À exécuter dans Supabase SQL Editor
+  Dashboard → SQL Editor → New query → Coller → Run
+══════════════════════════════════════════════════════════
+
+-- Clients
+create table clients (
+  id bigint generated always as identity primary key,
+  nom text not null,
+  telephone text,
+  email text,
+  adresse text,
+  limite_credit numeric default 0,
+  statut text default 'Actif',
+  created_at timestamptz default now()
+);
+
+-- Navires
+create table navires (
+  id bigint generated always as identity primary key,
+  nom text not null unique,
+  pavillon text,
+  created_at timestamptz default now()
+);
+
+-- Importations (voyages)
+create table importations (
+  id bigint generated always as identity primary key,
+  navire_id bigint references navires(id),
+  numero_voyage int not null,
+  numero_connaissement text,
+  date_arrivee date,
+  tonnage_brut numeric,
+  port text default 'Port d''Abidjan',
+  statut text default 'En cours',
+  created_at timestamptz default now()
+);
+
+-- Pesées / Journal de vente
+create table pesees (
+  id bigint generated always as identity primary key,
+  importation_id bigint references importations(id),
+  client_id bigint references clients(id),
+  date_pesee date not null,
+  type_pesee text not null check (type_pesee in ('DIRECT','SOCEF','CONTENEUR')),
+  produit text not null,
+  tonnage numeric not null,
+  numero_ticket text,
+  numero_douanes text,
+  retranchement numeric default 0,
+  motif_retranch text,
+  total_net numeric generated always as (tonnage - retranchement) stored,
+  prix_unitaire numeric default 0,
+  montant_total numeric generated always as ((tonnage - retranchement) * prix_unitaire) stored,
+  created_at timestamptz default now()
+);
+
+-- Stock SOCEF
+create table stock_socef (
+  id bigint generated always as identity primary key,
+  pesee_id bigint references pesees(id),
+  client_id bigint references clients(id),
+  date_entree date not null,
+  quantite_entree numeric not null,
+  quantite_disponible numeric not null,
+  frais_congelation numeric default 0,
+  statut text default 'En stock',
+  created_at timestamptz default now()
+);
+
+-- Sorties SOCEF
+create table sorties_socef (
+  id bigint generated always as identity primary key,
+  stock_id bigint references stock_socef(id),
+  date_sortie date not null,
+  quantite numeric not null,
+  client_destinataire bigint references clients(id),
+  created_at timestamptz default now()
+);
+
+-- Factures
+create table factures (
+  id bigint generated always as identity primary key,
+  client_id bigint references clients(id),
+  numero text unique not null,
+  date_facture date not null,
+  date_echeance date,
+  montant_total numeric not null,
+  montant_paye numeric default 0,
+  statut text default 'impayée',
+  created_at timestamptz default now()
+);
+
+-- Lignes de facture
+create table lignes_facture (
+  id bigint generated always as identity primary key,
+  facture_id bigint references factures(id) on delete cascade,
+  pesee_id bigint references pesees(id),
+  quantite numeric,
+  prix_unitaire numeric,
+  sous_total numeric
+);
+
+-- Paiements
+create table paiements (
+  id bigint generated always as identity primary key,
+  facture_id bigint references factures(id),
+  date_paiement date not null,
+  montant numeric not null,
+  mode text,
+  reference text,
+  created_at timestamptz default now()
+);
+
+-- Employés
+create table employes (
+  id bigint generated always as identity primary key,
+  nom text not null,
+  prenom text,
+  poste text,
+  date_embauche date,
+  salaire_base numeric default 0,
+  statut text default 'Actif',
+  created_at timestamptz default now()
+);
+
+-- Paie
+create table paie (
+  id bigint generated always as identity primary key,
+  employe_id bigint references employes(id),
+  mois int not null,
+  annee int not null,
+  salaire_brut numeric not null,
+  charges numeric default 0,
+  salaire_net numeric not null,
+  date_paiement date,
+  created_at timestamptz default now()
+);
+
+-- Row Level Security (activer après tests)
+-- alter table clients enable row level security;
+-- alter table pesees enable row level security;
+-- etc.
+
+-- Données initiales (navires du fichier Excel)
+insert into navires (nom) values
+  ('DICHA UNO'), ('DICHA SIETE'), ('JC GLORIA'), ('JC VICTORIA');
+
+-- Données initiales (clients du fichier Excel)
+insert into clients (nom) values
+  ('BEN'), ('CREME FRAICHE'), ('YOMBA');
+
+*/

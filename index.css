@@ -1,0 +1,276 @@
+import { useState, useMemo } from 'react'
+import { Plus, Trash2, Upload, Download } from 'lucide-react'
+import toast from 'react-hot-toast'
+import readXlsxFile from 'read-excel-file'
+import { useDB, fmt, fmtDate, totalNet } from '../hooks/useDB'
+import {
+  PageHeader, Modal, ModalFooter, Field, Grid2, Grid3,
+  Input, Select, Badge, EmptyState, TblWrap, Tabs, SumRow, AlertBox
+} from '../components/UI'
+
+const TABS = [
+  { value: 'all',       label: 'Toutes' },
+  { value: 'DIRECT',    label: 'Direct client' },
+  { value: 'SOCEF',     label: 'SOCEF' },
+  { value: 'CONTENEUR', label: 'Conteneur' },
+]
+
+const EMPTY_FORM = {
+  importation_id: '', client_id: '', date_pesee: new Date().toISOString().split('T')[0],
+  type_pesee: 'DIRECT', produit: 'THON', tonnage: '', numero_ticket: '',
+  numero_douanes: '', retranchement: 0, motif_retranch: '', prix_unitaire: 0
+}
+
+export default function Journal() {
+  const { db, addPesee, deletePesee, getNavire, getClient } = useDB()
+  const [tab, setTab] = useState('all')
+  const [open, setOpen] = useState(false)
+  const [form, setForm] = useState(EMPTY_FORM)
+  const [importAlert, setImportAlert] = useState(null)
+
+  const set = k => e => setForm(f => ({ ...f, [k]: e.target.value }))
+
+  const filtered = useMemo(() => {
+    let rows = tab === 'all' ? db.pesees : db.pesees.filter(p => p.type_pesee === tab)
+    return [...rows].reverse()
+  }, [db.pesees, tab])
+
+  const totaux = useMemo(() => ({
+    tonnage:    filtered.reduce((s, p) => s + (p.tonnage || 0), 0),
+    retranch:   filtered.reduce((s, p) => s + (p.retranchement || 0), 0),
+    totalNet:   filtered.reduce((s, p) => s + totalNet(p), 0),
+    montant:    filtered.reduce((s, p) => s + totalNet(p) * (p.prix_unitaire || 0), 0),
+  }), [filtered])
+
+  const tabsWithCount = TABS.map(t => ({
+    ...t,
+    count: t.value === 'all' ? db.pesees.length : db.pesees.filter(p => p.type_pesee === t.value).length
+  }))
+
+  function handleSave() {
+    if (!form.importation_id || !form.tonnage) {
+      toast.error('Importation et tonnage obligatoires')
+      return
+    }
+    addPesee({
+      ...form,
+      importation_id: parseInt(form.importation_id),
+      client_id: form.client_id ? parseInt(form.client_id) : null,
+      tonnage: parseFloat(form.tonnage) || 0,
+      retranchement: parseFloat(form.retranchement) || 0,
+      prix_unitaire: parseFloat(form.prix_unitaire) || 0,
+    })
+    toast.success('Pesée enregistrée')
+    setOpen(false)
+    setForm(EMPTY_FORM)
+  }
+
+  function handleDelete(id) {
+    if (!confirm('Supprimer cette pesée ?')) return
+    deletePesee(id)
+    toast.success('Pesée supprimée')
+  }
+
+  // Import Excel
+  async function handleExcelImport(e) {
+    const file = e.target.files[0]
+    if (!file) return
+    try {
+      const rows = await readXlsxFile(file)
+      // Chercher la feuille JOURNAL DE VENTE en lisant toutes les colonnes
+      // rows[0] = en-têtes, rows[1..] = données
+      let imported = 0
+      for (let i = 1; i < rows.length; i++) {
+        const r = rows[i]
+        if (!r || !r[2]) continue // pas de navire
+        const dateVal = r[1]
+        const date = dateVal instanceof Date
+          ? dateVal.toISOString().split('T')[0]
+          : new Date().toISOString().split('T')[0]
+        const navire = r[2]?.toString().trim()
+        const voyage = parseInt(r[3]) || 1
+        const type = r[4]?.toString().trim().toUpperCase() || 'DIRECT'
+        const produit = r[5]?.toString().trim().toUpperCase() || 'THON'
+        const tonnage = parseFloat(r[6]) || 0
+        const client_nom = r[7]?.toString().trim()
+        const ticket = r[8]?.toString().trim() || ''
+        const douanes = r[9]?.toString().trim() || ''
+        const retranch = parseFloat(r[10]) || 0
+        const motif = r[11]?.toString().trim() || ''
+        if (tonnage <= 0) continue
+        // Trouver ou créer l'importation
+        let nav = db.navires.find(n => n.nom.trim().toUpperCase() === navire.toUpperCase())
+        let imp = db.importations.find(i => {
+          const n = db.navires.find(x => x.id === i.navire_id)
+          return n?.nom.trim().toUpperCase() === navire.toUpperCase() && i.numero_voyage === voyage
+        })
+        const imp_id = imp?.id
+        if (!imp_id) continue
+        const cli = db.clients.find(c => c.nom.trim().toUpperCase() === client_nom?.toUpperCase())
+        addPesee({
+          importation_id: imp_id,
+          client_id: cli?.id || null,
+          date_pesee: date,
+          type_pesee: ['DIRECT','SOCEF','CONTENEUR'].includes(type) ? type : 'DIRECT',
+          produit: ['THON','AJI','BROKEN','SAWARA'].includes(produit) ? produit : produit,
+          tonnage, numero_ticket: ticket, numero_douanes: douanes,
+          retranchement: retranch, motif_retranch: motif, prix_unitaire: 0
+        })
+        imported++
+      }
+      setImportAlert(`${imported} ligne(s) importée(s) depuis le fichier Excel`)
+      toast.success(`${imported} pesées importées`)
+    } catch (err) {
+      toast.error('Erreur lors de la lecture du fichier')
+    }
+    e.target.value = ''
+  }
+
+  function exportCSV() {
+    const header = ['Date','Navire','Voyage','Type','Produit','Tonnage','Client','N°Ticket','N°Douanes','Retranchement','Motif','Total net','Prix/kg','Montant']
+    const rows = filtered.map(p => {
+      const imp = db.importations.find(i => i.id === p.importation_id)
+      const nav = imp ? getNavire(imp.navire_id) : null
+      const cli = getClient(p.client_id)
+      return [
+        p.date_pesee, nav?.nom||'', imp?.numero_voyage||'', p.type_pesee,
+        p.produit, p.tonnage, cli?.nom||'', p.numero_ticket, p.numero_douanes,
+        p.retranchement, p.motif_retranch, totalNet(p), p.prix_unitaire, totalNet(p)*p.prix_unitaire
+      ].join(';')
+    })
+    const csv = [header.join(';'), ...rows].join('\n')
+    const a = document.createElement('a')
+    a.href = URL.createObjectURL(new Blob(['\uFEFF'+csv], { type: 'text/csv;charset=utf-8' }))
+    a.download = `journal_vente_${new Date().toISOString().split('T')[0]}.csv`
+    a.click()
+  }
+
+  return (
+    <div className="p-8">
+      <PageHeader title="Journal de vente">
+        <label className="btn-secondary cursor-pointer">
+          <Upload size={14} /> Importer Excel
+          <input type="file" accept=".xlsx,.xlsm,.xls" className="hidden" onChange={handleExcelImport} />
+        </label>
+        <button className="btn-secondary" onClick={exportCSV}>
+          <Download size={14} /> Export CSV
+        </button>
+        <button className="btn-primary" onClick={() => setOpen(true)}>
+          <Plus size={14} /> Nouvelle pesée
+        </button>
+      </PageHeader>
+
+      {importAlert && <AlertBox type="success">{importAlert}</AlertBox>}
+
+      <Tabs tabs={tabsWithCount} active={tab} onChange={setTab} />
+
+      <div className="card">
+        <TblWrap>
+          <table className="w-full">
+            <thead>
+              <tr>
+                {['Date','Navire','Voy.','Type','Produit','Tonnage','Client','N° Ticket','N° Douanes','Retranch.','Motif','Total net','Prix/kg','Montant',''].map(h => (
+                  <th key={h} className="th whitespace-nowrap">{h}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {filtered.length === 0 ? <EmptyState message="Aucune pesée enregistrée" /> : filtered.map(p => {
+                const imp = db.importations.find(i => i.id === p.importation_id)
+                const nav = imp ? getNavire(imp.navire_id) : null
+                const cli = getClient(p.client_id)
+                return (
+                  <tr key={p.id} className="tr-hover">
+                    <td className="td font-mono text-xs">{fmtDate(p.date_pesee)}</td>
+                    <td className="td font-medium">{nav?.nom || '—'}</td>
+                    <td className="td text-ocean-400">V{imp?.numero_voyage}</td>
+                    <td className="td"><Badge type={p.type_pesee} /></td>
+                    <td className="td font-mono text-xs text-ocean-600">{p.produit}</td>
+                    <td className="td font-mono">{fmt(p.tonnage)}</td>
+                    <td className="td">{cli?.nom || <span className="text-ocean-300">—</span>}</td>
+                    <td className="td text-xs text-ocean-400 font-mono">{p.numero_ticket}</td>
+                    <td className="td text-xs text-ocean-400 font-mono">{p.numero_douanes}</td>
+                    <td className="td text-xs text-amber-600">{p.retranchement > 0 ? `-${fmt(p.retranchement)}` : ''}</td>
+                    <td className="td text-xs text-ocean-400">{p.motif_retranch}</td>
+                    <td className="td font-semibold font-mono">{fmt(totalNet(p))}</td>
+                    <td className="td text-xs font-mono text-ocean-500">{p.prix_unitaire > 0 ? fmt(p.prix_unitaire) : ''}</td>
+                    <td className="td font-mono text-ocean-700">{p.prix_unitaire > 0 ? fmt(totalNet(p) * p.prix_unitaire) : ''}</td>
+                    <td className="td">
+                      <button onClick={() => handleDelete(p.id)} className="text-ocean-300 hover:text-red-500 transition-colors">
+                        <Trash2 size={13} />
+                      </button>
+                    </td>
+                  </tr>
+                )
+              })}
+            </tbody>
+            <SumRow values={[
+              'Totaux', '', '', '', '',
+              fmt(totaux.tonnage) + ' kg', '', '', '',
+              totaux.retranch > 0 ? `-${fmt(totaux.retranch)}` : '', '',
+              fmt(totaux.totalNet) + ' kg', '', fmt(totaux.montant) + ' FCFA', ''
+            ]} />
+          </table>
+        </TblWrap>
+      </div>
+
+      {/* Modal nouvelle pesée */}
+      <Modal open={open} onClose={() => setOpen(false)} title="Enregistrer une pesée" wide>
+        <Grid2>
+          <Field label="Importation / Navire">
+            <Select value={form.importation_id} onChange={set('importation_id')}>
+              <option value="">— Choisir —</option>
+              {db.importations.map(i => {
+                const nav = getNavire(i.navire_id)
+                return <option key={i.id} value={i.id}>{nav?.nom} — Voyage {i.numero_voyage} ({fmtDate(i.date_arrivee)})</option>
+              })}
+            </Select>
+          </Field>
+          <Field label="Date de pesée">
+            <Input type="date" value={form.date_pesee} onChange={set('date_pesee')} />
+          </Field>
+          <Field label="Type de pesée">
+            <Select value={form.type_pesee} onChange={set('type_pesee')}>
+              <option>DIRECT</option><option>SOCEF</option><option>CONTENEUR</option>
+            </Select>
+          </Field>
+          <Field label="Produit">
+            <Select value={form.produit} onChange={set('produit')}>
+              {db.produits.map(p => <option key={p}>{p}</option>)}
+            </Select>
+          </Field>
+          <Field label="Client">
+            <Select value={form.client_id} onChange={set('client_id')}>
+              <option value="">— Sans client —</option>
+              {db.clients.map(c => <option key={c.id} value={c.id}>{c.nom}</option>)}
+            </Select>
+          </Field>
+          <Field label="Tonnage brut (kg)">
+            <Input type="number" value={form.tonnage} onChange={set('tonnage')} placeholder="ex: 18500" />
+          </Field>
+          <Field label="N° Ticket port">
+            <Input value={form.numero_ticket} onChange={set('numero_ticket')} placeholder="ex: P1/2024/1511" />
+          </Field>
+          <Field label="N° Douanes">
+            <Input value={form.numero_douanes} onChange={set('numero_douanes')} />
+          </Field>
+          <Field label="Retranchement (kg)">
+            <Input type="number" value={form.retranchement} onChange={set('retranchement')} />
+          </Field>
+          <Field label="Motif retranchement">
+            <Input value={form.motif_retranch} onChange={set('motif_retranch')} placeholder="ex: DMA, BEN..." />
+          </Field>
+          <Field label="Prix unitaire (FCFA/kg)">
+            <Input type="number" value={form.prix_unitaire} onChange={set('prix_unitaire')} placeholder="ex: 950" />
+          </Field>
+          <Field label="Total net calculé">
+            <div className="input bg-ocean-50 font-mono font-semibold text-ocean-700">
+              {fmt((parseFloat(form.tonnage)||0) - (parseFloat(form.retranchement)||0))} kg
+            </div>
+          </Field>
+        </Grid2>
+        <ModalFooter onClose={() => setOpen(false)} onSave={handleSave} />
+      </Modal>
+    </div>
+  )
+}

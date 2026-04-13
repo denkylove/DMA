@@ -1,0 +1,30 @@
+{
+  "name": "thonimport-ci",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0",
+    "react-router-dom": "^6.22.0",
+    "@supabase/supabase-js": "^2.39.0",
+    "recharts": "^2.12.0",
+    "date-fns": "^3.3.1",
+    "lucide-react": "^0.344.0",
+    "react-hot-toast": "^2.4.1",
+    "read-excel-file": "^5.8.3",
+    "jspdf": "^2.5.1",
+    "jspdf-autotable": "^3.8.2"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-react": "^4.2.1",
+    "vite": "^5.1.4",
+    "tailwindcss": "^3.4.1",
+    "postcss": "^8.4.35",
+    "autoprefixer": "^10.4.17"
+  }
+}

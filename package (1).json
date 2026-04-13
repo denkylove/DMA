@@ -1,0 +1,28 @@
+import { Routes, Route, Navigate } from 'react-router-dom'
+import Layout from './components/Layout'
+import Dashboard   from './pages/Dashboard'
+import Journal     from './pages/Journal'
+import Importations from './pages/Importations'
+import Clients     from './pages/Clients'
+import Factures    from './pages/Factures'
+import StockSocef  from './pages/StockSocef'
+import RH          from './pages/RH'
+import Comptabilite from './pages/Comptabilite'
+
+export default function App() {
+  return (
+    <Routes>
+      <Route path="/" element={<Layout />}>
+        <Route index element={<Navigate to="/dashboard" replace />} />
+        <Route path="dashboard"    element={<Dashboard />} />
+        <Route path="journal"      element={<Journal />} />
+        <Route path="importations" element={<Importations />} />
+        <Route path="clients"      element={<Clients />} />
+        <Route path="factures"     element={<Factures />} />
+        <Route path="socef"        element={<StockSocef />} />
+        <Route path="rh"           element={<RH />} />
+        <Route path="comptabilite" element={<Comptabilite />} />
+      </Route>
+    </Routes>
+  )
+}

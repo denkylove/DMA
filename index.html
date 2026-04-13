@@ -1,0 +1,148 @@
+import React from 'react';
+import { useQuery } from '@tanstack/react-query';
+import { getDashboard } from '../api';
+import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts';
+import { AlertTriangle, TrendingUp, Anchor, Package, Warehouse } from 'lucide-react';
+
+const fmt = n => Number(n||0).toLocaleString('fr-CI');
+
+const COLORS = ['#0d5c3a','#1d9e75','#5dcaa5','#9fe1cb','#e1f5ee'];
+
+export default function Dashboard() {
+  const { data, isLoading } = useQuery({ queryKey: ['dashboard'], queryFn: getDashboard });
+
+  if (isLoading) return <div style={{ padding: 40, color: 'var(--text3)' }}>Chargement...</div>;
+  if (!data) return null;
+
+  return (
+    <>
+      <div className="topbar">
+        <span className="topbar-title">Tableau de bord</span>
+        <span style={{ fontSize: 12, color: 'var(--text3)', fontFamily: 'var(--mono)' }}>
+          {new Date().toLocaleDateString('fr-CI', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}
+        </span>
+      </div>
+      <div className="page-content">
+
+        {/* KPIs */}
+        <div className="kpi-grid" style={{ gridTemplateColumns: 'repeat(4, 1fr)' }}>
+          <div className="kpi-card kpi-accent">
+            <div className="kpi-label">Tonnage net total</div>
+            <div className="kpi-value">{fmt(data.tonnage.t)} kg</div>
+            <div className="kpi-sub">{data.tonnage.n} pesée(s)</div>
+          </div>
+          <div className="kpi-card kpi-amber">
+            <div className="kpi-label">Créances en cours</div>
+            <div className="kpi-value">{fmt(data.creances.t)}</div>
+            <div className="kpi-sub">FCFA non encaissés</div>
+          </div>
+          <div className="kpi-card kpi-blue">
+            <div className="kpi-label">Stock SOCEF</div>
+            <div className="kpi-value">{fmt(data.socef.t)} kg</div>
+            <div className="kpi-sub">{data.socef.n} lot(s) actif(s)</div>
+          </div>
+          <div className="kpi-card" style={{ borderLeft: '3px solid var(--text3)' }}>
+            <div className="kpi-label">Total retranchements</div>
+            <div className="kpi-value">{fmt(data.retranch.t)} kg</div>
+            <div className="kpi-sub">Déductions appliquées</div>
+          </div>
+        </div>
+
+        {/* Alertes */}
+        {(data.alertes_factures.length > 0 || data.bennes_dispo.n > 0) && (
+          <div style={{ marginBottom: 20 }}>
+            {data.alertes_factures.map(f => (
+              <div className="alert alert-warning" key={f.id}>
+                <AlertTriangle size={14} style={{ flexShrink: 0, marginTop: 1 }} />
+                Facture <strong>{f.num_facture}</strong> — {f.client_nom} — échue depuis le {f.date_echeance} — {fmt(f.montant_total - f.montant_paye)} FCFA restants
+              </div>
+            ))}
+            {data.bennes_dispo.n > 0 && (
+              <div className="alert alert-info">
+                <Package size={14} style={{ flexShrink: 0, marginTop: 1 }} />
+                {data.bennes_dispo.n} pesée(s) DIRECT non encore facturée(s)
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Graphiques */}
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, marginBottom: 16 }}>
+          <div className="card">
+            <div className="card-header"><span className="card-title">Tonnage par navire</span></div>
+            <div className="card-body">
+              {data.par_navire.length ? (
+                <ResponsiveContainer width="100%" height={200}>
+                  <BarChart data={data.par_navire} margin={{ top: 4, right: 4, bottom: 4, left: 4 }}>
+                    <XAxis dataKey="nom" tick={{ fontSize: 11 }} />
+                    <YAxis tick={{ fontSize: 11 }} tickFormatter={v => (v/1000).toFixed(0)+'t'} />
+                    <Tooltip formatter={v => fmt(v)+' kg'} labelStyle={{ fontSize: 12 }} contentStyle={{ fontSize: 12, fontFamily: 'IBM Plex Sans' }} />
+                    <Bar dataKey="tonnage" fill="#0d5c3a" radius={[3,3,0,0]} />
+                  </BarChart>
+                </ResponsiveContainer>
+              ) : <div className="empty">Aucune donnée</div>}
+            </div>
+          </div>
+
+          <div className="card">
+            <div className="card-header"><span className="card-title">Répartition par produit</span></div>
+            <div className="card-body">
+              {data.par_produit.length ? (
+                <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
+                  <ResponsiveContainer width={160} height={160}>
+                    <PieChart>
+                      <Pie data={data.par_produit} dataKey="tonnage" nameKey="produit" cx="50%" cy="50%" innerRadius={40} outerRadius={70}>
+                        {data.par_produit.map((_, i) => <Cell key={i} fill={COLORS[i % COLORS.length]} />)}
+                      </Pie>
+                      <Tooltip formatter={v => fmt(v)+' kg'} contentStyle={{ fontSize: 12, fontFamily: 'IBM Plex Sans' }} />
+                    </PieChart>
+                  </ResponsiveContainer>
+                  <div style={{ flex: 1 }}>
+                    {data.par_produit.map((p, i) => (
+                      <div key={p.produit} style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+                        <span style={{ width: 10, height: 10, borderRadius: 2, background: COLORS[i % COLORS.length], flexShrink: 0 }} />
+                        <span style={{ fontSize: 12, flex: 1 }}>{p.produit}</span>
+                        <span style={{ fontSize: 11, fontFamily: 'var(--mono)', color: 'var(--text2)' }}>{fmt(p.tonnage)} kg</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ) : <div className="empty">Aucune donnée</div>}
+            </div>
+          </div>
+        </div>
+
+        {/* Pesées récentes */}
+        <div className="card">
+          <div className="card-header"><span className="card-title">Pesées récentes</span></div>
+          <div className="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Date</th><th>Navire</th><th>Voy.</th><th>Type</th>
+                  <th>Produit</th><th>Client</th><th>Tonnage</th><th>Total net</th>
+                </tr>
+              </thead>
+              <tbody>
+                {data.recent.map(p => (
+                  <tr key={p.id}>
+                    <td style={{ fontFamily: 'var(--mono)', fontSize: 12 }}>{p.date}</td>
+                    <td>{p.navire_nom}</td>
+                    <td style={{ fontFamily: 'var(--mono)' }}>V{p.voyage}</td>
+                    <td><span className={`badge ${p.type_pesee==='DIRECT'?'badge-green':p.type_pesee==='SOCEF'?'badge-blue':'badge-gray'}`}>{p.type_pesee}</span></td>
+                    <td><span className="chip">{p.produit}</span></td>
+                    <td>{p.client_nom}</td>
+                    <td style={{ fontFamily: 'var(--mono)' }}>{fmt(p.tonnage)}</td>
+                    <td style={{ fontFamily: 'var(--mono)', fontWeight: 600 }}>{fmt(p.total_net)}</td>
+                  </tr>
+                ))}
+                {!data.recent.length && <tr><td colSpan={8} className="empty">Aucune pesée</td></tr>}
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+      </div>
+    </>
+  );
+}
